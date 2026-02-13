@@ -48,7 +48,7 @@ export interface Suggestion {
 export type ReviewStatus = "idle" | "streaming" | "complete" | "error";
 
 /** AI 提供商 */
-export type AIProvider = "claude" | "kimi" | "google";
+export type AIProvider = "claude" | "openai" | "google" | "deepseek" | "kimi";
 
 /** OpenRouter 上可用的模型 */
 export interface AIModel {
@@ -66,10 +66,34 @@ export const AI_MODELS: AIModel[] = [
     note: "推荐，稳定快速",
   },
   {
+    id: "anthropic/claude-opus-4",
+    name: "Claude Opus 4",
+    provider: "claude",
+    note: "最强校对能力，价格较高",
+  },
+  {
+    id: "openai/gpt-5.2",
+    name: "GPT-5.2",
+    provider: "openai",
+    note: "OpenAI 最新旗舰模型",
+  },
+  {
+    id: "openai/o4-mini",
+    name: "o4-mini",
+    provider: "openai",
+    note: "推理模型，适合逻辑审查",
+  },
+  {
     id: "google/gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
     provider: "google",
     note: "快速便宜",
+  },
+  {
+    id: "deepseek/deepseek-r1",
+    name: "DeepSeek R1",
+    provider: "deepseek",
+    note: "思维链推理，中文能力强",
   },
   {
     id: "moonshotai/kimi-k2.5",
