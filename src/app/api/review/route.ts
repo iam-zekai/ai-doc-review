@@ -3,7 +3,10 @@ import { createOpenRouterClient } from "@/lib/ai/openrouter";
 import { buildReviewPrompt } from "@/lib/review/prompt-builder";
 import type { ReviewRule } from "@/types/review";
 
-export const maxDuration = 60; // Next.js route timeout
+export const maxDuration = 120; // Next.js route timeout
+
+// 思维链模型需要更长超时
+const THINKING_MODELS = ["moonshotai/kimi-k2.5", "deepseek/deepseek-r1", "openai/o4-mini"];
 
 export async function POST(request: Request) {
   try {
@@ -40,9 +43,11 @@ export async function POST(request: Request) {
     const prompt = buildReviewPrompt(rules, customPrompt ?? "", text);
     const provider = createOpenRouterClient(apiKey);
 
-    // 使用 Vercel AI SDK 调用，带超时
+    // 思维链模型给 100 秒，普通模型 55 秒
+    const isThinkingModel = THINKING_MODELS.includes(model);
+    const timeoutMs = isThinkingModel ? 100000 : 55000;
     const abortController = new AbortController();
-    const timeout = setTimeout(() => abortController.abort(), 55000);
+    const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
     let result;
     try {
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
 
       if (err instanceof Error && err.name === "AbortError") {
         return Response.json(
-          { error: "请求超时（55秒），请缩短文档或更换响应更快的模型" },
+          { error: `请求超时（${timeoutMs / 1000}秒），请缩短文档或更换响应更快的模型` },
           { status: 504 }
         );
       }

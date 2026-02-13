@@ -106,9 +106,9 @@ export default function HomePage() {
     setShowRawResponse(false);
     setReviewStatus("streaming");
 
-    // 90 秒前端超时
+    // 120 秒前端超时（思维链模型需要更长时间）
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
       const response = await fetch("/api/review", {

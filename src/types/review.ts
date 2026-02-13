@@ -72,10 +72,10 @@ export const AI_MODELS: AIModel[] = [
     note: "最强校对能力，价格较高",
   },
   {
-    id: "openai/gpt-5.2",
-    name: "GPT-5.2",
+    id: "openai/gpt-4.1",
+    name: "GPT-4.1",
     provider: "openai",
-    note: "OpenAI 最新旗舰模型",
+    note: "OpenAI 旗舰模型，无区域限制",
   },
   {
     id: "openai/o4-mini",
