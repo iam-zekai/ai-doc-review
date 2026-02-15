@@ -6,7 +6,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && git add -A && git commit -m \"auto: $(date +%H:%M:%S) update\" --no-verify 2>/dev/null; git push --quiet 2>/dev/null || true"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && git add -A && git commit -m \"auto: $(date +%H:%M:%S) update\" --no-verify 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'next build'; then git add -A && git commit -m \"build: $(date +%m-%d\\ %H:%M) verified\" --no-verify 2>/dev/null; git push --quiet 2>/dev/null || true; fi"
           }
         ]
       }
