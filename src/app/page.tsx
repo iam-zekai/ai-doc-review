@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { TextPasteInput } from "@/components/upload/text-paste-input";
 import { FileInfoCard } from "@/components/upload/file-info-card";
 import { RuleSelector } from "@/components/review/rule-selector";
+import { ReviewEditor } from "@/components/editor/review-editor";
+import { SuggestionList } from "@/components/editor/suggestion-list";
+import { SuggestionPopover } from "@/components/editor/suggestion-popover";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,9 +17,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useDocumentStore } from "@/stores/document-store";
 import { useReviewStore } from "@/stores/review-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { parseReviewResponse } from "@/lib/review/response-parser";
+import { exportAsTxt } from "@/lib/export/export-txt";
+import { exportAsDocx } from "@/lib/export/export-docx";
 import { countWords, countChars } from "@/lib/utils";
 import { AI_MODELS } from "@/types/review";
+import type { Suggestion } from "@/types/review";
 import type { FileValidationError } from "@/types/document";
 
 const SAMPLE_TEXT = `尊敬的各位领导、同事们：
@@ -33,16 +38,24 @@ const SAMPLE_TEXT = `尊敬的各位领导、同事们：
 
 谢谢大家！`;
 
-
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState("upload");
   const [rawAIResponse, setRawAIResponse] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [showRawResponse, setShowRawResponse] = useState(false);
+  const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(
+    null
+  );
+  const [popoverSuggestion, setPopoverSuggestion] =
+    useState<Suggestion | null>(null);
+  const [popoverRect, setPopoverRect] = useState<DOMRect | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
   const rawText = useDocumentStore((s) => s.rawText);
+  const fileName = useDocumentStore((s) => s.fileName);
   const setDocument = useDocumentStore((s) => s.setDocument);
+  const updateText = useDocumentStore((s) => s.updateText);
   const {
     selectedRules,
     customPrompt,
@@ -52,9 +65,10 @@ export default function HomePage() {
     setSuggestions,
     setReviewStatus,
     setErrorMessage,
+    updateSuggestionStatus,
     reset: resetReview,
   } = useReviewStore();
-  const { apiKey, selectedModel } = useSettingsStore();
+  const { apiKey, selectedModel, chunkSize } = useSettingsStore();
 
   /** 加载示例文本 */
   const handleLoadSample = useCallback(() => {
@@ -65,7 +79,10 @@ export default function HomePage() {
       countWords(SAMPLE_TEXT),
       countChars(SAMPLE_TEXT)
     );
-    toast({ title: "已加载示例文本", description: "包含错别字和语气问题，可直接开始审校" });
+    toast({
+      title: "已加载示例文本",
+      description: "包含错别字和语气问题，可直接开始审校",
+    });
   }, [setDocument, toast]);
 
   /** 处理文件验证错误 */
@@ -104,11 +121,13 @@ export default function HomePage() {
     setRawAIResponse("");
     setParseError(null);
     setShowRawResponse(false);
+    setActiveSuggestionId(null);
+    setPopoverSuggestion(null);
     setReviewStatus("streaming");
 
-    // 120 秒前端超时（思维链模型需要更长时间）
+    // 5 分钟前端超时（大文档 + 思维链模型需要更长时间）
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
       const response = await fetch("/api/review", {
@@ -121,6 +140,7 @@ export default function HomePage() {
           customPrompt,
           model: selectedModel,
           apiKey,
+          chunkSize,
         }),
       });
 
@@ -138,33 +158,31 @@ export default function HomePage() {
         throw new Error(errorMsg);
       }
 
-      // 直接读取文本（后端已非流式）
-      const accumulated = await response.text();
+      // 后端已解析好，直接读取 JSON
+      const data = await response.json();
+      setRawAIResponse(data.rawResponse ?? "");
 
-      // 保存原始响应用于调试
-      setRawAIResponse(accumulated);
-
-      if (!accumulated.trim()) {
-        throw new Error("AI 返回了空内容，请检查 API Key 是否有效，或尝试更换模型");
+      if (data.error) {
+        throw new Error(data.error);
       }
 
-      // 解析响应
-      const result = parseReviewResponse(accumulated);
-      setSuggestions(result.suggestions);
+      const suggestions = data.suggestions ?? [];
+      const serverParseError = data.parseError ?? null;
+
+      setSuggestions(suggestions);
       setReviewStatus("complete");
 
-      if (result.parseError) {
-        setParseError(result.parseError);
+      if (serverParseError) {
+        setParseError(serverParseError);
       }
 
-      if (result.suggestions.length === 0) {
-        if (result.parseError) {
-          // 解析失败，自动展开原始响应
+      if (suggestions.length === 0) {
+        if (serverParseError) {
           setShowRawResponse(true);
           toast({
             variant: "destructive",
             title: "解析失败",
-            description: result.parseError,
+            description: serverParseError,
           });
         } else {
           toast({
@@ -175,7 +193,7 @@ export default function HomePage() {
       } else {
         toast({
           title: "审校完成",
-          description: `共发现 ${result.suggestions.length} 处建议`,
+          description: `共发现 ${suggestions.length} 处建议`,
         });
       }
     } catch (err) {
@@ -200,6 +218,7 @@ export default function HomePage() {
     customPrompt,
     rawText,
     selectedModel,
+    chunkSize,
     resetReview,
     setReviewStatus,
     setSuggestions,
@@ -207,13 +226,119 @@ export default function HomePage() {
     toast,
   ]);
 
+  /** 编辑器中点击高亮 → 显示浮窗 */
+  const handleEditorClickSuggestion = useCallback(
+    (id: string, rect: DOMRect) => {
+      const s = suggestions.find((s) => s.id === id);
+      if (s && s.status === "pending") {
+        setActiveSuggestionId(id);
+        setPopoverSuggestion(s);
+        setPopoverRect(rect);
+      }
+    },
+    [suggestions]
+  );
+
+  /** 右侧列表点击建议 → 编辑器高亮联动 */
+  const handleListClickSuggestion = useCallback((id: string) => {
+    setActiveSuggestionId(id);
+    setPopoverSuggestion(null); // 关闭浮窗，只做联动
+  }, []);
+
+  /** 接受建议 */
+  const handleAccept = useCallback(
+    (s: Suggestion) => {
+      // 通过编辑器 ref 应用修改
+      if (editorRef.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const el = editorRef.current as any;
+        if (el.__applySuggestion) el.__applySuggestion(s);
+      }
+      updateSuggestionStatus(s.id, "accepted");
+      setPopoverSuggestion(null);
+      setActiveSuggestionId(null);
+
+      // 同步更新文本
+      if (editorRef.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const el = editorRef.current as any;
+        if (el.__getEditor) {
+          const editor = el.__getEditor();
+          if (editor) updateText(editor.getText());
+        }
+      }
+    },
+    [updateSuggestionStatus, updateText]
+  );
+
+  /** 拒绝建议 */
+  const handleReject = useCallback(
+    (s: Suggestion) => {
+      updateSuggestionStatus(s.id, "rejected");
+      setPopoverSuggestion(null);
+      setActiveSuggestionId(null);
+    },
+    [updateSuggestionStatus]
+  );
+
+  /** 全部接受 */
+  const handleAcceptAll = useCallback(() => {
+    const pending = suggestions.filter((s) => s.status === "pending");
+    // 从后往前接受，避免偏移量错位
+    const sorted = [...pending].sort((a, b) => b.offset - a.offset);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const el = editorRef.current as any;
+    for (const s of sorted) {
+      if (el?.__applySuggestion) el.__applySuggestion(s);
+      updateSuggestionStatus(s.id, "accepted");
+    }
+    // 同步文本
+    if (el?.__getEditor) {
+      const editor = el.__getEditor();
+      if (editor) updateText(editor.getText());
+    }
+    setActiveSuggestionId(null);
+    toast({ title: "已全部接受", description: `${pending.length} 条建议已应用` });
+  }, [suggestions, updateSuggestionStatus, updateText, toast]);
+
+  /** 全部拒绝 */
+  const handleRejectAll = useCallback(() => {
+    const pending = suggestions.filter((s) => s.status === "pending");
+    for (const s of pending) {
+      updateSuggestionStatus(s.id, "rejected");
+    }
+    setActiveSuggestionId(null);
+    toast({ title: "已全部忽略", description: `${pending.length} 条建议已忽略` });
+  }, [suggestions, updateSuggestionStatus, toast]);
+
+  /** 导出 */
+  const handleExportTxt = useCallback(() => {
+    const baseName = fileName?.replace(/\.[^.]+$/, "") || "审校结果";
+    exportAsTxt(rawText, baseName);
+  }, [rawText, fileName]);
+
+  const handleExportDocx = useCallback(async () => {
+    const baseName = fileName?.replace(/\.[^.]+$/, "") || "审校结果";
+    await exportAsDocx(rawText, baseName);
+  }, [rawText, fileName]);
+
+  /** 编辑器文本更新 */
+  const handleTextUpdate = useCallback(
+    (text: string) => {
+      updateText(text);
+    },
+    [updateText]
+  );
+
   const currentModel = AI_MODELS.find((m) => m.id === selectedModel);
   const isStreaming = reviewStatus === "streaming";
+  const hasResults =
+    reviewStatus === "complete" && suggestions.length > 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* 标题区域 */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
           文档审校
         </h1>
@@ -225,27 +350,33 @@ export default function HomePage() {
       {/* 文件已加载 */}
       {rawText ? (
         <div className="space-y-6">
-          <FileInfoCard />
+          {/* 文件信息 + 审校规则（审校前显示） */}
+          {!hasResults && (
+            <>
+              <FileInfoCard />
+              <RuleSelector />
 
-          {/* 审校规则选择 */}
-          <RuleSelector />
-
-          {/* 审校操作按钮 */}
-          <div className="flex items-center gap-3">
-            <Button
-              className="flex-1 h-11 text-base font-semibold shadow-sm"
-              size="lg"
-              onClick={handleStartReview}
-              disabled={isStreaming || selectedRules.length === 0}
-            >
-              {isStreaming ? "审校中..." : "开始审校"}
-            </Button>
-            {currentModel && (
-              <Badge variant="secondary" className="h-11 px-4 text-xs font-medium">
-                {currentModel.name}
-              </Badge>
-            )}
-          </div>
+              {/* 审校操作按钮 */}
+              <div className="flex items-center gap-3">
+                <Button
+                  className="flex-1 h-11 text-base font-semibold shadow-sm"
+                  size="lg"
+                  onClick={handleStartReview}
+                  disabled={isStreaming || selectedRules.length === 0}
+                >
+                  {isStreaming ? "审校中..." : "开始审校"}
+                </Button>
+                {currentModel && (
+                  <Badge
+                    variant="secondary"
+                    className="h-11 px-4 text-xs font-medium"
+                  >
+                    {currentModel.name}
+                  </Badge>
+                )}
+              </div>
+            </>
+          )}
 
           {/* 审校进度 */}
           {isStreaming && (
@@ -260,7 +391,9 @@ export default function HomePage() {
           {/* 错误信息 */}
           {reviewStatus === "error" && errorMessage && (
             <Card className="border-destructive/50 bg-destructive/5 p-5">
-              <p className="text-sm text-destructive font-medium">{errorMessage}</p>
+              <p className="text-sm text-destructive font-medium">
+                {errorMessage}
+              </p>
               <Button
                 variant="outline"
                 size="sm"
@@ -272,65 +405,106 @@ export default function HomePage() {
             </Card>
           )}
 
-          {/* 审校结果 */}
-          {reviewStatus === "complete" && suggestions.length > 0 && (
+          {/* ========== 审校结果：左右布局 ========== */}
+          {hasResults && (
             <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold">审校结果</h2>
-                <Badge variant="secondary" className="font-medium">
-                  {suggestions.length} 处建议
-                </Badge>
+              {/* 顶部操作栏 */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-semibold">审校结果</h2>
+                  <Badge variant="secondary" className="font-medium">
+                    {suggestions.length} 处建议
+                  </Badge>
+                  {currentModel && (
+                    <span className="text-xs text-muted-foreground">
+                      {currentModel.name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleExportTxt}
+                  >
+                    导出 TXT
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleExportDocx}
+                  >
+                    导出 DOCX
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleStartReview}
+                  >
+                    重新审校
+                  </Button>
+                </div>
               </div>
 
               {/* 解析警告 */}
               {parseError && (
                 <Card className="border-amber-200 bg-amber-50 p-3">
-                  <p className="text-xs text-amber-700">
-                    {parseError}
-                  </p>
+                  <p className="text-xs text-amber-700">{parseError}</p>
                 </Card>
               )}
 
-              <div className="space-y-3">
-                {suggestions.map((s) => (
-                  <Card key={s.id} className="p-4 space-y-3 transition-shadow hover:shadow-md">
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={
-                          s.type === "error"
-                            ? "destructive"
-                            : s.type === "warning"
-                              ? "default"
-                              : "secondary"
-                        }
-                        className="text-xs"
-                      >
-                        {s.type === "error"
-                          ? "错误"
-                          : s.type === "warning"
-                            ? "警告"
-                            : "建议"}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        位置：第 {s.offset + 1} 字符
-                      </span>
-                    </div>
+              {/* 左右分栏 */}
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                {/* 左侧：编辑器 */}
+                <div className="lg:col-span-3">
+                  <div ref={editorRef}>
+                    <ReviewEditor
+                      content={rawText}
+                      suggestions={suggestions}
+                      activeSuggestionId={activeSuggestionId}
+                      onClickSuggestion={handleEditorClickSuggestion}
+                      onTextUpdate={handleTextUpdate}
+                      editable={false}
+                    />
+                  </div>
+                </div>
 
-                    <div className="flex items-center gap-2 text-sm rounded-md bg-muted/50 p-2.5">
-                      <span className="line-through text-destructive/80 decoration-destructive/40">
-                        {s.original}
-                      </span>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                      <span className="text-green-600 dark:text-green-400 font-medium">
-                        {s.suggestion}
-                      </span>
-                    </div>
+                {/* 右侧：建议列表 */}
+                <div className="lg:col-span-2">
+                  <div className="border rounded-lg bg-white lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
+                    <SuggestionList
+                      suggestions={suggestions}
+                      activeSuggestionId={activeSuggestionId}
+                      onClickSuggestion={handleListClickSuggestion}
+                      onAccept={handleAccept}
+                      onReject={handleReject}
+                      onAcceptAll={handleAcceptAll}
+                      onRejectAll={handleRejectAll}
+                    />
+                  </div>
+                </div>
+              </div>
 
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {s.reason}
-                    </p>
-                  </Card>
-                ))}
+              {/* AI 原始响应（调试用） */}
+              <div className="space-y-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground"
+                  onClick={() => setShowRawResponse(!showRawResponse)}
+                >
+                  {showRawResponse
+                    ? "隐藏 AI 原始响应"
+                    : "查看 AI 原始响应"}
+                </Button>
+                {showRawResponse && (
+                  <pre className="rounded-md bg-muted p-3 text-xs leading-relaxed whitespace-pre-wrap overflow-auto max-h-[400px] font-mono">
+                    {rawAIResponse || "(AI 返回了空内容)"}
+                  </pre>
+                )}
               </div>
             </div>
           )}
@@ -344,27 +518,6 @@ export default function HomePage() {
                   : "文档审校完成，未发现需要修改的地方"}
               </p>
             </Card>
-          )}
-
-          {/* AI 原始响应（调试用） */}
-          {reviewStatus === "complete" && (
-            <div className="space-y-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs text-muted-foreground"
-                onClick={() => setShowRawResponse(!showRawResponse)}
-              >
-                {showRawResponse
-                  ? "隐藏 AI 原始响应"
-                  : "查看 AI 原始响应"}
-              </Button>
-              {showRawResponse && (
-                <pre className="rounded-md bg-muted p-3 text-xs leading-relaxed whitespace-pre-wrap overflow-auto max-h-[400px] font-mono">
-                  {rawAIResponse || "(AI 返回了空内容)"}
-                </pre>
-              )}
-            </div>
           )}
         </div>
       ) : (
@@ -397,6 +550,20 @@ export default function HomePage() {
             </Button>
           </div>
         </>
+      )}
+
+      {/* 建议浮窗 */}
+      {popoverSuggestion && popoverRect && (
+        <SuggestionPopover
+          suggestion={popoverSuggestion}
+          anchorRect={popoverRect}
+          onAccept={handleAccept}
+          onReject={handleReject}
+          onClose={() => {
+            setPopoverSuggestion(null);
+            setPopoverRect(null);
+          }}
+        />
       )}
     </div>
   );

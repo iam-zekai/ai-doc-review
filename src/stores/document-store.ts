@@ -21,6 +21,8 @@ interface DocumentState {
     wordCount: number,
     charCount: number
   ) => void;
+  /** 更新文本内容（接受建议后） */
+  updateText: (text: string) => void;
   /** 清除文档 */
   clearDocument: () => void;
 }
@@ -34,6 +36,8 @@ export const useDocumentStore = create<DocumentState>((set) => ({
 
   setDocument: (text, fileName, fileType, wordCount, charCount) =>
     set({ rawText: text, fileName, fileType, wordCount, charCount }),
+
+  updateText: (text) => set({ rawText: text }),
 
   clearDocument: () =>
     set({

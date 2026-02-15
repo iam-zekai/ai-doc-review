@@ -84,10 +84,22 @@ export const AI_MODELS: AIModel[] = [
     note: "推理模型，适合逻辑审查",
   },
   {
+    id: "google/gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    provider: "google",
+    note: "1M上下文，65K输出，适合大文档精细审查",
+  },
+  {
     id: "google/gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
     provider: "google",
-    note: "快速便宜",
+    note: "1M上下文，65K输出，快速便宜",
+  },
+  {
+    id: "qwen/qwen3-235b-a22b",
+    name: "Qwen 3 235B",
+    provider: "deepseek",
+    note: "131K上下文，中文能力极强，性价比高",
   },
   {
     id: "deepseek/deepseek-r1",

@@ -22,13 +22,21 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { AI_MODELS } from "@/types/review";
 
 export function SettingsDialog() {
-  const { apiKey, selectedModel, setApiKey, setSelectedModel } =
-    useSettingsStore();
+  const {
+    apiKey,
+    selectedModel,
+    chunkSize,
+    setApiKey,
+    setSelectedModel,
+    setChunkSize,
+  } = useSettingsStore();
   const [localKey, setLocalKey] = useState(apiKey);
+  const [localChunkSize, setLocalChunkSize] = useState(chunkSize);
   const [open, setOpen] = useState(false);
 
   const handleSave = () => {
     setApiKey(localKey.trim());
+    setChunkSize(localChunkSize);
     setOpen(false);
   };
 
@@ -37,7 +45,10 @@ export function SettingsDialog() {
       open={open}
       onOpenChange={(v) => {
         setOpen(v);
-        if (v) setLocalKey(apiKey);
+        if (v) {
+          setLocalKey(apiKey);
+          setLocalChunkSize(chunkSize);
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -108,6 +119,32 @@ export function SettingsDialog() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <Separator />
+
+          {/* 大文档分块 */}
+          <div className="space-y-2">
+            <Label>大文档分块</Label>
+            <Select
+              value={localChunkSize.toString()}
+              onValueChange={(v) => setLocalChunkSize(Number(v))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">不分块（默认）</SelectItem>
+                <SelectItem value="1000">1000 字/块</SelectItem>
+                <SelectItem value="2000">2000 字/块（推荐）</SelectItem>
+                <SelectItem value="5000">5000 字/块</SelectItem>
+                <SelectItem value="10000">10000 字/块</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              超大文档时启用分块可避免超时和输出截断。分块会并行请求，会增加
+              API 用量。
+            </p>
           </div>
         </div>
 

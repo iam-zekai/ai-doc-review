@@ -72,3 +72,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Tiptap 编辑器样式 */
+.review-editor .tiptap {
+  outline: none;
+}
+
+.review-editor .tiptap p {
+  margin-bottom: 0.5rem;
+}
+
+/* 审校标记高亮样式 */
+.review-decoration {
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 1px 0;
+  transition: all 0.15s ease;
+}
+
+.review-decoration-error {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-bottom: 2px solid rgb(239, 68, 68);
+}
+
+.review-decoration-error:hover,
+.review-decoration-error.review-decoration-active {
+  background-color: rgba(239, 68, 68, 0.3);
+}
+
+.review-decoration-warning {
+  background-color: rgba(245, 158, 11, 0.15);
+  border-bottom: 2px solid rgb(245, 158, 11);
+}
+
+.review-decoration-warning:hover,
+.review-decoration-warning.review-decoration-active {
+  background-color: rgba(245, 158, 11, 0.3);
+}
+
+.review-decoration-suggestion {
+  background-color: rgba(59, 130, 246, 0.12);
+  border-bottom: 2px solid rgb(59, 130, 246);
+}
+
+.review-decoration-suggestion:hover,
+.review-decoration-suggestion.review-decoration-active {
+  background-color: rgba(59, 130, 246, 0.25);
+}
+
+.review-decoration-active {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+}
