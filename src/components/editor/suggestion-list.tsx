@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type { Suggestion } from "@/types/review";
+import type { Suggestion, SuggestionType } from "@/types/review";
 
 interface SuggestionListProps {
   suggestions: Suggestion[];
@@ -26,10 +26,22 @@ export function SuggestionList({
   onRejectAll,
 }: SuggestionListProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const [filterType, setFilterType] = useState<SuggestionType | "all">("all");
 
   const pending = suggestions.filter((s) => s.status === "pending");
   const accepted = suggestions.filter((s) => s.status === "accepted");
   const rejected = suggestions.filter((s) => s.status === "rejected");
+
+  const errorCount = suggestions.filter((s) => s.type === "error").length;
+  const warningCount = suggestions.filter((s) => s.type === "warning").length;
+  const suggestionCount = suggestions.filter(
+    (s) => s.type === "suggestion"
+  ).length;
+
+  const filteredSuggestions =
+    filterType === "all"
+      ? suggestions
+      : suggestions.filter((s) => s.type === filterType);
 
   // 滚动到激活的建议
   useEffect(() => {
@@ -44,12 +56,60 @@ export function SuggestionList({
 
   return (
     <div className="flex flex-col h-full">
-      {/* 统计 + 批量操作 */}
+      {/* 类型筛选 + 统计 + 批量操作 */}
       <div className="shrink-0 p-3 border-b space-y-2">
+        {/* 类型筛选 */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setFilterType("all")}
+            className={`text-xs px-2 py-1 rounded-md transition-colors ${
+              filterType === "all"
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            }`}
+          >
+            全部 ({suggestions.length})
+          </button>
+          {errorCount > 0 && (
+            <button
+              onClick={() => setFilterType("error")}
+              className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                filterType === "error"
+                  ? "bg-destructive text-destructive-foreground"
+                  : "bg-red-100 text-red-700 hover:bg-red-200"
+              }`}
+            >
+              错误 ({errorCount})
+            </button>
+          )}
+          {warningCount > 0 && (
+            <button
+              onClick={() => setFilterType("warning")}
+              className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                filterType === "warning"
+                  ? "bg-amber-500 text-white"
+                  : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+              }`}
+            >
+              警告 ({warningCount})
+            </button>
+          )}
+          {suggestionCount > 0 && (
+            <button
+              onClick={() => setFilterType("suggestion")}
+              className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                filterType === "suggestion"
+                  ? "bg-blue-500 text-white"
+                  : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+              }`}
+            >
+              建议 ({suggestionCount})
+            </button>
+          )}
+        </div>
+
+        {/* 状态统计 */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="secondary" className="text-xs">
-            共 {suggestions.length} 条
-          </Badge>
           {pending.length > 0 && (
             <Badge className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-100">
               待处理 {pending.length}
@@ -66,6 +126,7 @@ export function SuggestionList({
             </Badge>
           )}
         </div>
+
         {pending.length > 0 && (
           <div className="flex gap-2">
             <Button
@@ -90,16 +151,22 @@ export function SuggestionList({
 
       {/* 建议列表 */}
       <div ref={listRef} className="flex-1 overflow-auto p-3 space-y-2">
-        {suggestions.map((s) => (
-          <SuggestionCard
-            key={s.id}
-            suggestion={s}
-            isActive={s.id === activeSuggestionId}
-            onClick={() => onClickSuggestion(s.id)}
-            onAccept={() => onAccept(s)}
-            onReject={() => onReject(s)}
-          />
-        ))}
+        {filteredSuggestions.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-8">
+            暂无该类型的建议
+          </p>
+        ) : (
+          filteredSuggestions.map((s) => (
+            <SuggestionCard
+              key={s.id}
+              suggestion={s}
+              isActive={s.id === activeSuggestionId}
+              onClick={() => onClickSuggestion(s.id)}
+              onAccept={() => onAccept(s)}
+              onReject={() => onReject(s)}
+            />
+          ))
+        )}
       </div>
     </div>
   );

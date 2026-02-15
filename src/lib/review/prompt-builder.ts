@@ -1,21 +1,19 @@
-import { REVIEW_RULE_LABELS, type ReviewRule } from "@/types/review";
+import { getRuleTemplate } from "./rule-store";
 
 export interface ReviewPrompt {
   system: string;
   user: string;
 }
 
-/** 根据选中的规则生成规则描述文本 */
+/** 根据规则 ID 列表生成规则描述文本 */
 function buildRuleDescriptions(
-  rules: ReviewRule[],
+  ruleIds: string[],
   customPrompt: string
 ): string {
-  const ruleDescriptions = rules
-    .filter((r) => r !== "custom")
-    .map(
-      (r) =>
-        `- ${REVIEW_RULE_LABELS[r].name}：${REVIEW_RULE_LABELS[r].description}`
-    )
+  const ruleDescriptions = ruleIds
+    .map((id) => getRuleTemplate(id))
+    .filter(Boolean)
+    .map((rule) => `- ${rule!.name}：${rule!.promptText}`)
     .join("\n");
 
   const customSection = customPrompt.trim()
@@ -62,22 +60,22 @@ ${ruleDescriptions}
 - 一个句子只出一条建议，不要对同一句重复提多条`;
 }
 
-/** 根据用户选择的规则和文档内容构造审校 prompt */
+/** 根据规则 ID 列表和文档内容构造审校 prompt */
 export function buildReviewPrompt(
-  rules: ReviewRule[],
+  ruleIds: string[],
   customPrompt: string,
   documentText: string
 ): ReviewPrompt {
-  const ruleDescriptions = buildRuleDescriptions(rules, customPrompt);
+  const ruleDescriptions = buildRuleDescriptions(ruleIds, customPrompt);
   const system = buildSystemPrompt(ruleDescriptions);
   return { system, user: documentText };
 }
 
 /** 预览 prompt（不含文档内容，仅展示 system prompt） */
 export function previewPrompt(
-  rules: ReviewRule[],
+  ruleIds: string[],
   customPrompt: string
 ): string {
-  const ruleDescriptions = buildRuleDescriptions(rules, customPrompt);
+  const ruleDescriptions = buildRuleDescriptions(ruleIds, customPrompt);
   return buildSystemPrompt(ruleDescriptions);
 }

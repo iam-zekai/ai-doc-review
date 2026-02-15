@@ -5,7 +5,6 @@ import { parseReviewResponse } from "@/lib/review/response-parser";
 import { chunkDocument } from "@/lib/review/chunker";
 import { mergeChunkResults } from "@/lib/review/chunk-merger";
 import type { ChunkResult } from "@/lib/review/chunk-merger";
-import type { ReviewRule } from "@/types/review";
 
 export const maxDuration = 300; // Next.js route timeout（5 分钟）
 
@@ -81,9 +80,9 @@ function handleAIError(err: unknown, timeoutMs: number): string {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { text, rules, customPrompt, model, apiKey, chunkSize } = body as {
+    const { text, ruleIds, customPrompt, model, apiKey, chunkSize } = body as {
       text: string;
-      rules: ReviewRule[];
+      ruleIds: string[];
       customPrompt?: string;
       model: string;
       apiKey: string;
@@ -103,7 +102,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (!rules || rules.length === 0) {
+    if (!ruleIds || ruleIds.length === 0) {
       return Response.json(
         { error: "请至少选择一条审校规则" },
         { status: 400 }
@@ -112,122 +111,172 @@ export async function POST(request: Request) {
 
     // 分块
     const chunks = chunkDocument(text, chunkSize ?? 0);
+    const totalChunks = chunks.length;
     console.log(
-      `[review] Document length: ${text.length}, chunks: ${chunks.length}, chunkSize: ${chunkSize ?? 0}`
+      `[review] Document length: ${text.length}, chunks: ${totalChunks}, chunkSize: ${chunkSize ?? 0}`
     );
 
     const provider = createOpenRouterClient(apiKey);
     const isThinkingModel = THINKING_MODELS.includes(model);
     const timeoutMs = isThinkingModel ? 270000 : 240000;
 
-    // 并行请求所有块
-    const chunkResults: ChunkResult[] = [];
-    const rawResponses: string[] = [];
-    let firstError: string | null = null;
+    // 创建 NDJSON 流式响应
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const chunkResults: ChunkResult[] = [];
+        const rawResponses: string[] = [];
+        let firstError: string | null = null;
 
-    const chunkPromises = chunks.map(async (chunk, idx) => {
-      const prompt = buildReviewPrompt(rules, customPrompt ?? "", chunk.text);
-      const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+        // 逐块顺序处理，每完成一块发送进度
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
 
-      try {
-        const result = await generateText({
-          model: provider(model),
-          system: prompt.system,
-          prompt: prompt.user,
-          temperature: 0.3,
-          maxOutputTokens: 32768,
-          abortSignal: abortController.signal,
-        });
+          // 发送进度
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                type: "progress",
+                current: i + 1,
+                total: totalChunks,
+              }) + "\n"
+            )
+          );
 
-        clearTimeout(timeout);
+          const prompt = buildReviewPrompt(
+            ruleIds,
+            customPrompt ?? "",
+            chunk.text
+          );
+          const abortController = new AbortController();
+          const timeout = setTimeout(
+            () => abortController.abort(),
+            timeoutMs
+          );
 
-        const content = result.text ?? "";
-        console.log(
-          `[review] Chunk ${idx}/${chunks.length} response length: ${content.length}`
-        );
+          try {
+            const result = await generateText({
+              model: provider(model),
+              system: prompt.system,
+              prompt: prompt.user,
+              temperature: 0.3,
+              maxOutputTokens: 32768,
+              abortSignal: abortController.signal,
+            });
 
-        if (!content.trim()) {
-          if (result.finishReason === "length") {
-            throw new Error(
-              "AI 输出被截断，请减小分块大小或更换模型"
+            clearTimeout(timeout);
+
+            const content = result.text ?? "";
+            console.log(
+              `[review] Chunk ${i}/${totalChunks} response length: ${content.length}`
             );
+
+            if (!content.trim()) {
+              if (result.finishReason === "length") {
+                throw new Error(
+                  "AI 输出被截断，请减小分块大小或更换模型"
+                );
+              }
+              throw new Error("AI 返回了空内容");
+            }
+
+            const parsed = parseReviewResponse(content, chunk.text);
+            rawResponses[i] = parsed.rawResponse;
+            chunkResults.push({
+              chunk,
+              suggestions: parsed.suggestions,
+            });
+          } catch (err) {
+            clearTimeout(timeout);
+            const errorMsg = handleAIError(err, timeoutMs);
+            if (!firstError) firstError = errorMsg;
+            console.error(`[review] Chunk ${i} error:`, errorMsg);
+            chunkResults.push({ chunk, suggestions: [] });
           }
-          throw new Error("AI 返回了空内容");
         }
 
-        // 解析该块的结果（传入块内文本做 offset 修正）
-        const parsed = parseReviewResponse(content, chunk.text);
-        rawResponses[idx] = parsed.rawResponse;
+        // 所有块完成后，合并结果
+        const totalSuggestions = chunkResults.reduce(
+          (sum, r) => sum + r.suggestions.length,
+          0
+        );
 
-        return { chunk, suggestions: parsed.suggestions } as ChunkResult;
-      } catch (err) {
-        clearTimeout(timeout);
-        const errorMsg = handleAIError(err, timeoutMs);
-        if (!firstError) firstError = errorMsg;
-        console.error(`[review] Chunk ${idx} error:`, errorMsg);
-        // 返回空结果，不阻塞其他块
-        return { chunk, suggestions: [] } as ChunkResult;
-      }
+        if (totalSuggestions === 0 && firstError) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({ type: "error", error: firstError }) + "\n"
+            )
+          );
+          controller.close();
+          return;
+        }
+
+        const mergedSuggestions = mergeChunkResults(chunkResults);
+
+        // offset 修正
+        const usedRanges: Array<{ from: number; to: number }> = [];
+        for (const s of mergedSuggestions) {
+          if (s.original) {
+            const realOffset = findOriginalInText(
+              text,
+              s.original,
+              s.offset,
+              usedRanges
+            );
+            if (realOffset !== -1) {
+              s.offset = realOffset;
+              s.length = s.original.length;
+              usedRanges.push({
+                from: realOffset,
+                to: realOffset + s.length,
+              });
+            }
+          }
+        }
+
+        // 裁剪过长建议
+        for (const s of mergedSuggestions) {
+          if (s.original.length > 60) {
+            const trimmed = trimOversizedSuggestion(s);
+            if (trimmed) {
+              s.original = trimmed.original;
+              s.suggestion = trimmed.suggestion;
+              s.offset = trimmed.offset;
+              s.length = trimmed.length;
+            }
+          }
+        }
+
+        const finalSuggestions = mergeAdjacentSuggestions(
+          mergedSuggestions,
+          text
+        );
+
+        console.log(
+          `[review] Final: ${finalSuggestions.length} suggestions (before merge: ${mergedSuggestions.length}) from ${totalChunks} chunks`
+        );
+
+        // 发送最终结果
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              type: "result",
+              suggestions: finalSuggestions,
+              rawResponse: rawResponses.filter(Boolean).join("\n---\n"),
+              parseError: firstError,
+            }) + "\n"
+          )
+        );
+
+        controller.close();
+      },
     });
 
-    const results = await Promise.all(chunkPromises);
-    chunkResults.push(...results);
-
-    // 如果所有块都失败了，返回错误
-    const totalSuggestions = chunkResults.reduce(
-      (sum, r) => sum + r.suggestions.length,
-      0
-    );
-    if (totalSuggestions === 0 && firstError) {
-      return Response.json({ error: firstError }, { status: 502 });
-    }
-
-    // 合并所有块的结果
-    const mergedSuggestions = mergeChunkResults(chunkResults);
-
-    // 用完整文档文本做最终的 offset 修正
-    const usedRanges: Array<{ from: number; to: number }> = [];
-    for (const s of mergedSuggestions) {
-      if (s.original) {
-        const realOffset = findOriginalInText(
-          text,
-          s.original,
-          s.offset,
-          usedRanges
-        );
-        if (realOffset !== -1) {
-          s.offset = realOffset;
-          s.length = s.original.length;
-          usedRanges.push({ from: realOffset, to: realOffset + s.length });
-        }
-      }
-    }
-
-    // 裁剪过长的建议：如果 original 超过 60 字但实际只改了几个字，缩小范围
-    for (const s of mergedSuggestions) {
-      if (s.original.length > 60) {
-        const trimmed = trimOversizedSuggestion(s);
-        if (trimmed) {
-          s.original = trimmed.original;
-          s.suggestion = trimmed.suggestion;
-          s.offset = trimmed.offset;
-          s.length = trimmed.length;
-        }
-      }
-    }
-
-    // 合并真正重叠的建议
-    const finalSuggestions = mergeAdjacentSuggestions(mergedSuggestions, text);
-
-    console.log(
-      `[review] Final: ${finalSuggestions.length} suggestions (before merge: ${mergedSuggestions.length}) from ${chunks.length} chunks`
-    );
-
-    return Response.json({
-      suggestions: finalSuggestions,
-      rawResponse: rawResponses.filter(Boolean).join("\n---\n"),
-      parseError: firstError,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "Transfer-Encoding": "chunked",
+      },
     });
   } catch (err) {
     console.error("[review] Unexpected error:", err);
