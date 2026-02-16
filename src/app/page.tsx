@@ -22,6 +22,7 @@ import { exportAsDocx } from "@/lib/export/export-docx";
 import { countWords, countChars } from "@/lib/utils";
 import { getRuleTemplate, getScenePack } from "@/lib/review/rule-store";
 import { useTemplateStore } from "@/stores/template-store";
+import { useDocumentWithDetection } from "@/hooks/use-document-with-detection";
 import { AI_MODELS } from "@/types/review";
 import type { Suggestion } from "@/types/review";
 import type { FileValidationError } from "@/types/document";
@@ -60,8 +61,8 @@ export default function HomePage() {
 
   const rawText = useDocumentStore((s) => s.rawText);
   const fileName = useDocumentStore((s) => s.fileName);
-  const setDocument = useDocumentStore((s) => s.setDocument);
   const updateText = useDocumentStore((s) => s.updateText);
+  const setDocumentWithDetection = useDocumentWithDetection();
   const {
     selectedRuleIds,
     activeScenePackId,
@@ -84,18 +85,14 @@ export default function HomePage() {
   const { apiKey, selectedModel, chunkSize } = useSettingsStore();
 
   const handleLoadSample = useCallback(() => {
-    setDocument(
+    setDocumentWithDetection(
       SAMPLE_TEXT,
       "示例文本.txt",
       "paste",
       countWords(SAMPLE_TEXT),
       countChars(SAMPLE_TEXT)
     );
-    toast({
-      title: "已加载示例文本",
-      description: "包含错别字和语气问题，可直接开始审校",
-    });
-  }, [setDocument, toast]);
+  }, [setDocumentWithDetection]);
 
   const handleError = useCallback(
     (error: FileValidationError) => {

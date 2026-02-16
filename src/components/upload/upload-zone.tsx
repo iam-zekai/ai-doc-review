@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn, validateFile, validateTextLength } from "@/lib/utils";
 import { parseTxtFile } from "@/lib/parsers/txt-parser";
 import { parseDocxFile } from "@/lib/parsers/docx-parser";
-import { useDocumentStore } from "@/stores/document-store";
+import { useDocumentWithDetection } from "@/hooks/use-document-with-detection";
 import type { ParsedDocument, FileValidationError } from "@/types/document";
 
 interface UploadZoneProps {
@@ -17,7 +17,7 @@ export function UploadZone({ onError }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const setDocument = useDocumentStore((s) => s.setDocument);
+  const setDocument = useDocumentWithDetection();
 
   /** 处理文件解析 */
   const handleFile = useCallback(

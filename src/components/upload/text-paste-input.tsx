@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { countWords, countChars, validateTextLength } from "@/lib/utils";
-import { useDocumentStore } from "@/stores/document-store";
+import { useDocumentWithDetection } from "@/hooks/use-document-with-detection";
 import { MAX_CHAR_COUNT, type FileValidationError } from "@/types/document";
 
 interface TextPasteInputProps {
@@ -13,7 +13,7 @@ interface TextPasteInputProps {
 
 export function TextPasteInput({ onError }: TextPasteInputProps) {
   const [text, setText] = useState("");
-  const setDocument = useDocumentStore((s) => s.setDocument);
+  const setDocument = useDocumentWithDetection();
 
   const charCount = text.replace(/\s/g, "").length;
   const isOverLimit = charCount > MAX_CHAR_COUNT;
