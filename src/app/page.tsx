@@ -22,7 +22,9 @@ import { exportAsDocx } from "@/lib/export/export-docx";
 import { countWords, countChars } from "@/lib/utils";
 import { getRuleTemplate, getScenePack } from "@/lib/review/rule-store";
 import { useTemplateStore } from "@/stores/template-store";
+import { useHistoryStore } from "@/stores/history-store";
 import { useDocumentWithDetection } from "@/hooks/use-document-with-detection";
+import { ReviewHistory } from "@/components/history/review-history";
 import { AI_MODELS } from "@/types/review";
 import type { Suggestion } from "@/types/review";
 import type { FileValidationError } from "@/types/document";
@@ -123,6 +125,14 @@ export default function HomePage() {
       });
       return;
     }
+
+    // Snapshot current config for history record (before reset clears state)
+    const snapshotRuleIds = [...selectedRuleIds];
+    const snapshotCustomPrompt = customPrompt;
+    const snapshotScenePackId = activeScenePackId;
+    const snapshotCustomTemplateId = activeCustomTemplateId;
+    const snapshotModel = selectedModel;
+    const snapshotFileName = fileName;
 
     resetReview();
     setRawAIResponse("");
@@ -225,6 +235,32 @@ export default function HomePage() {
                   title: "审校完成",
                   description: `共发现 ${resultSuggestions.length} 处建议`,
                 });
+
+                const model = AI_MODELS.find((m) => m.id === snapshotModel);
+                const scenePack = snapshotScenePackId ? getScenePack(snapshotScenePackId) : null;
+                const tplName = snapshotCustomTemplateId
+                  ? useTemplateStore.getState().templates.find((t) => t.id === snapshotCustomTemplateId)?.name ?? null
+                  : null;
+                useHistoryStore.getState().addRecord({
+                  id: crypto.randomUUID(),
+                  timestamp: Date.now(),
+                  fileName: snapshotFileName,
+                  modelId: snapshotModel,
+                  modelName: model?.name ?? snapshotModel,
+                  activeScenePackId: snapshotScenePackId,
+                  scenePackName: scenePack?.name ?? null,
+                  activeCustomTemplateId: snapshotCustomTemplateId,
+                  customTemplateName: tplName,
+                  selectedRuleIds: snapshotRuleIds,
+                  ruleNames: snapshotRuleIds.map((id) => getRuleTemplate(id)?.name ?? id),
+                  customPrompt: snapshotCustomPrompt,
+                  stats: {
+                    total: resultSuggestions.length,
+                    errors: resultSuggestions.filter((s: Suggestion) => s.type === "error").length,
+                    warnings: resultSuggestions.filter((s: Suggestion) => s.type === "warning").length,
+                    suggestions: resultSuggestions.filter((s: Suggestion) => s.type === "suggestion").length,
+                  },
+                });
               }
             } else if (event.type === "error") {
               throw new Error(event.error);
@@ -261,6 +297,9 @@ export default function HomePage() {
     rawText,
     selectedModel,
     chunkSize,
+    fileName,
+    activeScenePackId,
+    activeCustomTemplateId,
     resetReview,
     setReviewStatus,
     setSuggestions,
@@ -628,6 +667,7 @@ export default function HomePage() {
               没有文档？加载示例文本试试
             </Button>
           </div>
+          <ReviewHistory />
         </>
       )}
 
