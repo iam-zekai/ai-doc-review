@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useReviewStore } from "@/stores/review-store";
+import { useTemplateStore } from "@/stores/template-store";
 import {
   SCENE_PACKS,
   RULE_TEMPLATES,
@@ -14,6 +15,7 @@ import {
   type RuleCategory,
 } from "@/lib/review/rule-store";
 import { previewPrompt } from "@/lib/review/prompt-builder";
+import { useToast } from "@/hooks/use-toast";
 import { Plus, X } from "lucide-react";
 
 /** 审校规则选择组件 */
@@ -21,12 +23,15 @@ export function RuleSelector() {
   const {
     selectedRuleIds,
     activeScenePackId,
+    activeCustomTemplateId,
     customPrompt,
     setActiveScenePack,
+    setActiveCustomTemplate,
     removeRuleId,
     toggleRuleId,
     setCustomPrompt,
   } = useReviewStore();
+  const { templates, removeTemplate } = useTemplateStore();
   const [showPrompt, setShowPrompt] = useState(false);
   const [showRulePicker, setShowRulePicker] = useState(false);
 
@@ -74,6 +79,47 @@ export function RuleSelector() {
           ))}
         </div>
       </div>
+
+      {/* 我的模板 */}
+      {templates.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">我的模板:</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {templates.map((tpl) => (
+              <div key={tpl.id} className="relative group shrink-0">
+                <button
+                  onClick={() => setActiveCustomTemplate(tpl.id)}
+                  className={`rounded-lg border p-3 text-left transition-all hover:shadow-sm ${
+                    activeCustomTemplateId === tpl.id
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-background"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-base">{tpl.icon}</span>
+                    <span className="text-sm font-medium whitespace-nowrap">
+                      {tpl.name}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground max-w-[140px] leading-tight">
+                    {tpl.ruleIds.length} 条规则
+                    {tpl.customPrompt ? " + 自定义要求" : ""}
+                  </p>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeTemplate(tpl.id);
+                  }}
+                  className="absolute -top-1.5 -right-1.5 opacity-0 group-hover:opacity-100 bg-background border rounded-full p-0.5 shadow-sm hover:bg-destructive hover:text-white transition-all"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 已选规则 */}
       <div className="space-y-2">
@@ -141,6 +187,9 @@ export function RuleSelector() {
         />
       </div>
 
+      {/* 保存为模板 */}
+      {selectedRuleIds.length > 0 && <SaveTemplateForm />}
+
       {/* Prompt 预览 */}
       {showPrompt && (
         <div className="space-y-2">
@@ -153,6 +202,85 @@ export function RuleSelector() {
         </div>
       )}
     </Card>
+  );
+}
+
+/** 保存为模板表单 */
+function SaveTemplateForm() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState("");
+  const selectedRuleIds = useReviewStore((s) => s.selectedRuleIds);
+  const customPrompt = useReviewStore((s) => s.customPrompt);
+  const { templates, addTemplate } = useTemplateStore();
+  const { toast } = useToast();
+
+  const handleSave = () => {
+    if (!name.trim()) return;
+    if (templates.length >= 10) {
+      toast({
+        variant: "destructive",
+        title: "模板数量已达上限",
+        description: "最多保存 10 个自定义模板，请先删除旧模板",
+      });
+      return;
+    }
+    addTemplate({
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      icon: "📌",
+      ruleIds: [...selectedRuleIds],
+      customPrompt,
+      createdAt: Date.now(),
+    });
+    setName("");
+    setIsOpen(false);
+    toast({ title: "模板已保存", description: `「${name.trim()}」` });
+  };
+
+  if (!isOpen) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="text-xs h-7 gap-1"
+        onClick={() => setIsOpen(true)}
+      >
+        保存为模板
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleSave()}
+        placeholder="输入模板名称"
+        className="flex h-7 flex-1 rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        maxLength={20}
+      />
+      <Button
+        size="sm"
+        className="h-7 text-xs"
+        onClick={handleSave}
+        disabled={!name.trim()}
+      >
+        保存
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 text-xs"
+        onClick={() => {
+          setIsOpen(false);
+          setName("");
+        }}
+      >
+        取消
+      </Button>
+    </div>
   );
 }
 

@@ -21,6 +21,7 @@ import { exportAsTxt } from "@/lib/export/export-txt";
 import { exportAsDocx } from "@/lib/export/export-docx";
 import { countWords, countChars } from "@/lib/utils";
 import { getRuleTemplate, getScenePack } from "@/lib/review/rule-store";
+import { useTemplateStore } from "@/stores/template-store";
 import { AI_MODELS } from "@/types/review";
 import type { Suggestion } from "@/types/review";
 import type { FileValidationError } from "@/types/document";
@@ -64,6 +65,7 @@ export default function HomePage() {
   const {
     selectedRuleIds,
     activeScenePackId,
+    activeCustomTemplateId,
     customPrompt,
     suggestions,
     reviewStatus,
@@ -76,6 +78,9 @@ export default function HomePage() {
     updateSuggestionStatus,
     reset: resetReview,
   } = useReviewStore();
+  const customTemplateName = useTemplateStore(
+    (s) => s.templates.find((t) => t.id === activeCustomTemplateId)?.name
+  );
   const { apiKey, selectedModel, chunkSize } = useSettingsStore();
 
   const handleLoadSample = useCallback(() => {
@@ -455,6 +460,10 @@ export default function HomePage() {
                       <Badge variant="outline" className="text-xs">
                         {getScenePack(activeScenePackId)?.icon}{" "}
                         {getScenePack(activeScenePackId)?.name}
+                      </Badge>
+                    ) : activeCustomTemplateId ? (
+                      <Badge variant="outline" className="text-xs">
+                        📌 {customTemplateName ?? "自定义模板"}
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="text-xs">

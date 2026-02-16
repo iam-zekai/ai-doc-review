@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getScenePack } from "@/lib/review/rule-store";
+import { useTemplateStore } from "@/stores/template-store";
 import type { ReviewStatus, Suggestion } from "@/types/review";
 
 interface ReviewState {
@@ -7,6 +8,8 @@ interface ReviewState {
   selectedRuleIds: string[];
   /** 当前激活的场景包 ID（null 表示自定义组合） */
   activeScenePackId: string | null;
+  /** 当前激活的自定义模板 ID */
+  activeCustomTemplateId: string | null;
   /** 自定义 prompt */
   customPrompt: string;
   /** 审校建议列表 */
@@ -19,6 +22,7 @@ interface ReviewState {
   isEditingConfig: boolean;
 
   setActiveScenePack: (packId: string | null) => void;
+  setActiveCustomTemplate: (templateId: string | null) => void;
   setSelectedRuleIds: (ruleIds: string[]) => void;
   toggleRuleId: (ruleId: string) => void;
   removeRuleId: (ruleId: string) => void;
@@ -38,6 +42,7 @@ interface ReviewState {
 export const useReviewStore = create<ReviewState>((set) => ({
   selectedRuleIds: ["typo", "punctuation", "grammar"],
   activeScenePackId: null,
+  activeCustomTemplateId: null,
   customPrompt: "",
   suggestions: [],
   reviewStatus: "idle",
@@ -46,13 +51,32 @@ export const useReviewStore = create<ReviewState>((set) => ({
 
   setActiveScenePack: (packId) => {
     if (packId === null) {
-      set({ activeScenePackId: null });
+      set({ activeScenePackId: null, activeCustomTemplateId: null });
     } else {
       const pack = getScenePack(packId);
       if (pack) {
         set({
           activeScenePackId: packId,
+          activeCustomTemplateId: null,
           selectedRuleIds: [...pack.ruleIds],
+        });
+      }
+    }
+  },
+
+  setActiveCustomTemplate: (templateId) => {
+    if (templateId === null) {
+      set({ activeCustomTemplateId: null });
+    } else {
+      const template = useTemplateStore
+        .getState()
+        .templates.find((t) => t.id === templateId);
+      if (template) {
+        set({
+          activeCustomTemplateId: templateId,
+          activeScenePackId: null,
+          selectedRuleIds: [...template.ruleIds],
+          customPrompt: template.customPrompt,
         });
       }
     }
@@ -68,6 +92,7 @@ export const useReviewStore = create<ReviewState>((set) => ({
           ? state.selectedRuleIds.filter((id) => id !== ruleId)
           : [...state.selectedRuleIds, ruleId],
         activeScenePackId: null,
+        activeCustomTemplateId: null,
       };
     }),
 
@@ -75,6 +100,7 @@ export const useReviewStore = create<ReviewState>((set) => ({
     set((state) => ({
       selectedRuleIds: state.selectedRuleIds.filter((id) => id !== ruleId),
       activeScenePackId: null,
+      activeCustomTemplateId: null,
     })),
 
   setCustomPrompt: (prompt) => set({ customPrompt: prompt }),

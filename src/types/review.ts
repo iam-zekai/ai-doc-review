@@ -20,6 +20,38 @@ export interface Suggestion {
 /** 审校流程状态 */
 export type ReviewStatus = "idle" | "streaming" | "complete" | "error";
 
+/** 用户自定义模板 */
+export interface CustomTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  ruleIds: string[];
+  customPrompt: string;
+  createdAt: number;
+}
+
+/** 审校历史记录 */
+export interface ReviewHistoryRecord {
+  id: string;
+  timestamp: number;
+  fileName: string | null;
+  modelId: string;
+  modelName: string;
+  activeScenePackId: string | null;
+  scenePackName: string | null;
+  activeCustomTemplateId: string | null;
+  customTemplateName: string | null;
+  selectedRuleIds: string[];
+  ruleNames: string[];
+  customPrompt: string;
+  stats: {
+    total: number;
+    errors: number;
+    warnings: number;
+    suggestions: number;
+  };
+}
+
 /** AI 提供商 */
 export type AIProvider = "claude" | "openai" | "google" | "deepseek" | "kimi";
 
