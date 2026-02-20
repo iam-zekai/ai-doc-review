@@ -65,7 +65,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/WuXingggg/ai-doc-review.git
+git clone https://github.com/iam-zekai/ai-doc-review.git
 cd ai-doc-review
 
 # 安装依赖
